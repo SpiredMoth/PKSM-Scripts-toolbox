@@ -2,7 +2,7 @@ A GUI program built with Python 3 and PySimpleGUI for developing [PKSM-Scripts](
 
 ## To Do
 - [ ] GUI
-    - [ ] Save file selection
+    - [x] Save file selection
     - [ ] Save file diff
     - [ ] Save search
         - [ ] dump data?
