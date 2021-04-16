@@ -2,18 +2,21 @@ A GUI program built with Python 3 and PySimpleGUI for developing [PKSM-Scripts](
 
 ## To Do
 - [ ] GUI
-    - [x] Save file selection
-    - [ ] Save file diff
-    - [ ] Save search
-        - [ ] dump data?
-    - [ ] Script compilation
-    - [ ] PKSM Communication (send script)
+    - [ ] Save Research (container tab)
+        - [x] Save file selection (column)
+        - [ ] Actions (tab group)
+            - [ ] Save file raw diff (tab)
+            - [ ] Save file event diff (tab)
+            - [ ] Save search (tab)
+            - [ ] Dump data (tab)
+    - [ ] Script compilation (tab)
+    - [ ] PKSM Communication (tab)
 - [ ] backend
-    - [ ] load save file(s)
-    - [ ] save file diff
-        - [ ] save data
-        - [ ] event const/flags
-    - [ ] search save data for value
+    - [ ] Save Research
+        - [ ] load save file(s)
+        - [ ] save file raw diff
+        - [ ] save file event diff
+        - [ ] search save data for value
+        - [ ] dump data
     - [ ] `.pksm` script compilation
     - [ ] script sending
-- [ ] connect GUI and backend

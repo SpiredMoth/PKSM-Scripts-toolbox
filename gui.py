@@ -1,5 +1,6 @@
 import PySimpleGUI as sg
 
+
 ########################
 # Layout
 ########################
@@ -18,7 +19,8 @@ def add_save():
             sg.Button("-", key=f"-SAVE_REMOVE_{saves_active}-", size=(2, 1)),
             sg.Text(f"{saves_active+1}."),
             sg.Input(key=f"-SAVE_FILE_{saves_active}-"),
-            sg.FileBrowse(file_types=save_types, target=f"-SAVE_FILE_{saves_active}-"),
+            sg.FileBrowse(file_types=save_types,
+                          target=f"-SAVE_FILE_{saves_active}-"),
         ]], key=f"-SAVE_{saves_active}-"),
     ]])
 
@@ -29,7 +31,8 @@ file_list_column = [
     [
         sg.Column([[
             sg.Column([[
-                sg.Button("-", disabled=True, key="-SAVE_REMOVE_0-", size=(2, 1)),
+                sg.Button("-", disabled=True,
+                          key="-SAVE_REMOVE_0-", size=(2, 1)),
                 sg.Text("1."),
                 sg.Input(key="-SAVE_FILE_0-"),
                 sg.FileBrowse(file_types=save_types, target=f"-SAVE_FILE_0-"),
@@ -38,13 +41,31 @@ file_list_column = [
     ],
 ]
 
-save_diff_layout = [
-    [sg.Text("TODO: Save file diff GUI")],
+save_diff_raw_layout = [
+    [sg.Text("TODO: Save file raw diff GUI")],
+]
+
+save_diff_event_layout = [
+    [sg.Text("TODO: Save file event diff GUI")],
 ]
 
 save_search_layout = [
     [sg.Text("TODO: Save search GUI")],
 ]
+
+save_dump_layout = [
+    [sg.Text("TODO: Save dump GUI")],
+]
+
+research_layout = [[
+    sg.Column(layout=file_list_column, vertical_alignment="top"),
+    sg.Column([[sg.TabGroup([[
+        sg.Tab("Raw Diff", layout=save_diff_raw_layout),
+        sg.Tab("Event Diff", layout=save_diff_event_layout),
+        sg.Tab("Search", layout=save_search_layout),
+        sg.Tab("Dump", layout=save_dump_layout),
+    ]])]], vertical_alignment="top"),
+]]
 
 compile_layout = [
     [sg.Text("TODO: Simple script creation and compilation GUI")],
@@ -55,22 +76,18 @@ send_layout = [
 ]
 
 layout = [[
-    sg.Column(file_list_column, vertical_alignment="top", expand_y=True),
-    sg.Column([[
-        sg.TabGroup([[
-            sg.Tab("Send", layout=send_layout),
-            sg.Tab("Compile", layout=compile_layout),
-            sg.Tab("Save Diff", layout=save_diff_layout),
-            sg.Tab("Search", layout=save_search_layout),
-        ]])
-    ]], vertical_alignment="top", expand_y=True)
+    sg.TabGroup([[
+        sg.Tab("Save Research", layout=research_layout),
+        sg.Tab("Send to PKSM", layout=send_layout),
+        sg.Tab("Compile Script", layout=compile_layout),
+    ]]),
 ]]
 
 window = sg.Window("PKSM-Scripts Development Tool",
-                   layout=layout, resizable=True)
+                   layout=layout, resizable=True, finalize=True)
 
 while True:
-    event, values = window.read()
+    event, values = window.read(timeout=500)
 
     if event in (sg.WIN_CLOSED, "Exit"):
         break
@@ -92,7 +109,7 @@ while True:
                     value=values[f"-SAVE_FILE_{i+1}-"])
                 window[f"-SAVE_FILE_{i+1}-"].update(value="")
         window[f"-SAVE_FILE_{saves_active-1}-"].update(value="")
-        # hide last save input
+        # cannot remove elements from GUI, so hide it
         window[f"-SAVE_{saves_active-1}-"].update(visible=False)
         saves_active -= 1
 
