@@ -10,7 +10,7 @@ A GUI program built with Python 3 and PySimpleGUI for developing [PKSM-Scripts](
             - [ ] Save search (tab)
             - [ ] Dump data (tab)
     - [ ] Script compilation (tab)
-    - [ ] PKSM Communication (tab)
+    - [x] PKSM Communication (tab)
 - [ ] backend
     - [ ] Save Research
         - [ ] load save file(s)

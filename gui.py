@@ -73,6 +73,24 @@ compile_layout = [
 
 send_layout = [
     [sg.Text("TODO: PKSM communication GUI")],
+    [
+        sg.Column([
+            [sg.Text("Script to send:", pad=((5, 0), 5))],
+            [sg.Text("Subdirectory (optional):", pad=((5, 0), 5))],
+            [sg.Text("Change script name? (optional)", pad=((5, 0), 5))],
+            [sg.Text("3DS IP Address:", pad=((5, 0), 5))],
+        ], pad=(0, 5), element_justification="right"),
+        sg.Column([
+            [sg.Input(k="-SEND_FILE-", pad=((0, 5), 5)), sg.FileBrowse(file_types=(
+                ("PKSM Scripts", "*.pksm;*.c"),), target="-SEND_FILE-", pad=(0, 5))],
+            [sg.Input(k="-SEND_SUBDIR-", pad=(0, 5))],
+            [sg.Checkbox("", key="-SEND_CHANGE-", enable_events=True), sg.Column(
+                [[sg.Input(key="-SEND_NAME-")]], key="-CHANGE_NAME-", visible=False, pad=(0, 0))],
+            [sg.Input(size=(15, 1), k="-SEND_IP-", pad=(0, 5))],
+        ], pad=((0, 5), 5)),
+    ],
+    [sg.Column([[sg.Button("Send to PKSM", key="-SEND_START-",
+               disabled=True)]], justification="center")],
 ]
 
 layout = [[
@@ -112,6 +130,14 @@ while True:
         # cannot remove elements from GUI, so hide it
         window[f"-SAVE_{saves_active-1}-"].update(visible=False)
         saves_active -= 1
+    elif event == "-SEND_CHANGE-":
+        window["-CHANGE_NAME-"].update(visible=values["-SEND_CHANGE-"])
+
+    if not (values["-SEND_FILE-"]
+            and values["-SEND_IP-"]):
+        window["-SEND_START-"].update(disabled=True)
+    else:
+        window["-SEND_START-"].update(disabled=False)
 
     if saves_active > 1:
         window["-SAVE_REMOVE_0-"].update(disabled=False)
