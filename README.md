@@ -9,7 +9,7 @@ A GUI program built with Python 3 and PySimpleGUI for developing [PKSM-Scripts](
             - [ ] Save file event diff (tab)
             - [ ] Save search (tab)
             - [ ] Dump data (tab)
-    - [ ] Script compilation (tab)
+    - [x] Script compilation (tab)
     - [x] PKSM Communication (tab)
 - [ ] backend
     - [ ] Save Research

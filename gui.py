@@ -9,19 +9,43 @@ sg.theme("DarkAmber")
 
 save_types = (
     ("Pokemon save", "*.sav;*.dsv;main;*.main;savedata.bin"), ("ALL Files", "*.*"))
-saves_active = 1
-save_files_inputs = 1
+save_inputs = 1
+save_inputs_active = 1
+script_inputs = 1
+script_inputs_active = 1
 
 
 def add_save():
     window.extend_layout(window["-SAVE_LIST-"], [[
         sg.Column([[
-            sg.Button("-", key=f"-SAVE_REMOVE_{saves_active}-", size=(2, 1)),
-            sg.Text(f"{saves_active+1}."),
-            sg.Input(key=f"-SAVE_FILE_{saves_active}-"),
+            sg.Button(
+                "-", key=f"-SAVE_REMOVE_{save_inputs_active}-", size=(2, 1)),
+            sg.Text(f"{save_inputs_active+1}."),
+            sg.Input(key=f"-SAVE_FILE_{save_inputs_active}-"),
             sg.FileBrowse(file_types=save_types,
-                          target=f"-SAVE_FILE_{saves_active}-"),
-        ]], key=f"-SAVE_{saves_active}-"),
+                          target=f"-SAVE_FILE_{save_inputs_active}-"),
+        ]], key=f"-SAVE_{save_inputs_active}-"),
+    ]])
+
+
+def add_script_input():
+    window.extend_layout(window["-COMPILE_GROUPS-"], [[
+        sg.Column([[
+            sg.Button("-", size=(2, 1),
+                      key=f"-COMPILE_REMOVE_{script_inputs_active}-"),
+            sg.Input(s=(10, 1), pad=(10, None),
+                     key=f"-COMPILE_OFFSET_{script_inputs_active}-"),
+            sg.Input(s=(10, 1), pad=(10, None),
+                     key=f"-COMPILE_LENGTH_{script_inputs_active}-"),
+            sg.Input(s=(10, 1), pad=(10, None),
+                     key=f"-COMPILE_REPEAT_{script_inputs_active}-"),
+            sg.Combo(("Value", "File"), default_value="Value", enable_events=True,
+                     key=f"-COMPILE_DATA_TYPE_{script_inputs_active}-"),
+            sg.Input(
+                s=(30, 1), key=f"-COMPILE_DATA_{script_inputs_active}-", pad=(0, None)),
+            sg.FileBrowse(
+                disabled=True, key=f"-COMPILE_FILE_{script_inputs_active}-"),
+        ]], key=f"-COMPILE_{script_inputs_active}-"),
     ]])
 
 
@@ -69,6 +93,44 @@ research_layout = [[
 
 compile_layout = [
     [sg.Text("TODO: Simple script creation and compilation GUI")],
+    [
+        sg.Column([
+            [sg.Text("Script name:")],
+            [sg.Text("Subdirectory (optional):")],
+        ], element_justification="right"),
+        sg.Column([
+            [sg.Input(k="-COMPILE_NAME-")],
+            [sg.Input(k="-COMPILE_SUBDIR-")],
+        ]),
+    ],
+    [sg.Column([[
+        sg.Button("Add Input Group", key="-COMPILE_ADD-"),
+        sg.Button("Compile Script", key="-COMPILE_START-"),
+    ]], justification="center")],
+    [sg.Frame("Input Groups", [
+        [
+            sg.Column([[
+                sg.Text("", size=(3, 1)),
+                sg.Text("Offset", s=(10, 1)),
+                sg.Text("Data Length", s=(10, 1)),
+                sg.Text("Data Repeat", s=(10, 1)),
+                sg.Text("Data", pad=(50, None)),
+            ]]),
+        ],
+        [
+            sg.Column([[
+                sg.Button("-", size=(2, 1),
+                          key="-COMPILE_REMOVE_0-", disabled=True),
+                sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_OFFSET_0-"),
+                sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_LENGTH_0-"),
+                sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_REPEAT_0-"),
+                sg.Combo(("Value", "File"), default_value="Value",
+                         enable_events=True, key="-COMPILE_DATA_TYPE_0-"),
+                sg.Input(s=(30, 1), key="-COMPILE_DATA_0-", pad=(0, None)),
+                sg.FileBrowse(disabled=True, key="-COMPILE_FILE_0-"),
+            ]], key="-COMPILE_0-"),
+        ],
+    ], key="-COMPILE_GROUPS-", pad=(20, 10))],
 ]
 
 send_layout = [
@@ -101,7 +163,7 @@ layout = [[
     ]]),
 ]]
 
-window = sg.Window("PKSM-Scripts Development Tool",
+window = sg.Window("PKSM-Scripts Toolbox",
                    layout=layout, resizable=True, finalize=True)
 
 while True:
@@ -111,25 +173,54 @@ while True:
         break
 
     if event == "-ADD_SAVE-":
-        if save_files_inputs > saves_active:
-            window[f"-SAVE_{saves_active}-"].update(visible=True)
+        if save_inputs > save_inputs_active:
+            window[f"-SAVE_{save_inputs_active}-"].update(visible=True)
         else:
             add_save()
-            save_files_inputs += 1
-        saves_active += 1
+            save_inputs += 1
+        save_inputs_active += 1
+        window["-SAVE_REMOVE_0-"].update(disabled=False)
     elif event.startswith("-SAVE_REMOVE_"):
         # get ID of save being removed
         save_id = int(event[13:-1])
         # bubble up saves if ID not last
-        if save_id < saves_active - 1:
-            for i in range(save_id, saves_active-1):
+        if save_id < save_inputs_active - 1:
+            for i in range(save_id, save_inputs_active-1):
                 window[f"-SAVE_FILE_{i}-"].update(
                     value=values[f"-SAVE_FILE_{i+1}-"])
-                window[f"-SAVE_FILE_{i+1}-"].update(value="")
-        window[f"-SAVE_FILE_{saves_active-1}-"].update(value="")
+        window[f"-SAVE_FILE_{save_inputs_active-1}-"].update(value="")
         # cannot remove elements from GUI, so hide it
-        window[f"-SAVE_{saves_active-1}-"].update(visible=False)
-        saves_active -= 1
+        window[f"-SAVE_{save_inputs_active-1}-"].update(visible=False)
+        save_inputs_active -= 1
+        if save_inputs_active == 1:
+            window["-SAVE_REMOVE_0-"].update(disabled=True)
+    elif event == "-COMPILE_ADD-":
+        if script_inputs > script_inputs_active:
+            window[f"-COMPILE_{script_inputs_active}-"].update(visible=True)
+        else:
+            add_script_input()
+            script_inputs += 1
+        script_inputs_active += 1
+        window["-COMPILE_REMOVE_0-"].update(disabled=False)
+    elif event.startswith("-COMPILE_REMOVE_"):
+        input_id = int(event[16:-1])
+        if input_id < script_inputs_active - 1:
+            for i in range(input_id, script_inputs_active - 1):
+                for s in ("OFFSET", "LENGTH", "DATA_TYPE", "DATA"):
+                    window[f"-COMPILE_{s}_{i}-"].update(
+                        value=values[f"-COMPILE_{s}_{i+1}-"])
+                    window[f"-COMPILE_{s}_{i+1}-"].update(
+                        value="Value" if s == "DATA_TYPE" else "")
+                window[f"-COMPILE_FILE_{i}-"].update(
+                    disabled=values[f"-COMPILE_DATA_TYPE_{i+1}-"] != "File")
+        window[f"-COMPILE_{script_inputs_active-1}-"].update(visible=False)
+        script_inputs_active -= 1
+        if script_inputs_active == 1:
+            window["-COMPILE_REMOVE_0-"].update(disabled=True)
+    elif event.startswith("-COMPILE_DATA_TYPE_"):
+        input_id = int(event[19:-1])
+        window[f"-COMPILE_FILE_{input_id}-"].update(
+            disabled=values[f"-COMPILE_DATA_TYPE_{input_id}-"] != "File")
     elif event == "-SEND_CHANGE-":
         window["-CHANGE_NAME-"].update(visible=values["-SEND_CHANGE-"])
 
@@ -138,10 +229,5 @@ while True:
         window["-SEND_START-"].update(disabled=True)
     else:
         window["-SEND_START-"].update(disabled=False)
-
-    if saves_active > 1:
-        window["-SAVE_REMOVE_0-"].update(disabled=False)
-    else:
-        window["-SAVE_REMOVE_0-"].update(disabled=True)
 
 window.close()
