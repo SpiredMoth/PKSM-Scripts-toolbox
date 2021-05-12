@@ -8,7 +8,7 @@ To run the source code, you need Python 3.6 or above as well as the `PySimpleGUI
 pip install --upgrade PySimpleGUI
 ```
 
-A note about PySimpleGUI's compatibility with Python versions (from [its own documentation](https://pysimplegui.readthedocs.io/en/latest/#hardware-and-os-support)):
+A note about PySimpleGUI's compatibility with Python versions (from [its own documentation](https://pysimplegui.readthedocs.io/en/latest/#hardware-and-os-support)), which may or may not be out-of-date by now:
 
 > Warning - tkinter + Python 3.7.3 and later, including 3.8 has problems
 >
@@ -33,5 +33,9 @@ A note about PySimpleGUI's compatibility with Python versions (from [its own doc
         - [ ] save file event diff
         - [ ] search save data for value
         - [ ] dump data
-    - [ ] `.pksm` script compilation
+    - [x] `.pksm` script compilation
+        - [x] argument validation
+        - [x] warning/error reporting
+        - [x] file creation
+        - [x] move compiled script to output directory
     - [ ] script sending
