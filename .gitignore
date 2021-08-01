@@ -130,3 +130,6 @@ dmypy.json
 
 # VSCode Local History extension
 .history
+
+# Project specific
+/scripts
