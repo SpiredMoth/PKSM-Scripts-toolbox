@@ -36,6 +36,16 @@ A note about PySimpleGUI's compatibility with Python versions (from [its own doc
         - [x] file select
         - [x] 3DS IP
         - [x] alternate script name (optional alternate name for script to be sent to PKSM instead of file name)
+        - [x] feedback
+            - [x] `Sending '{file_name}' as '{script_name}'`
+            - [x] send stages
+                - [x] Name length
+                - [x] Name
+                - [x] File size
+                - [x] File contents
+                - [x] Completion (success or fail)
+                - [ ] Failure reason
+            - [x] stage attempt countdown (progress bar)
 - [ ] backend
     - [ ] Save Research
         - [ ] load save file(s)
@@ -48,15 +58,23 @@ A note about PySimpleGUI's compatibility with Python versions (from [its own doc
         - [x] warning/error reporting
         - [x] file creation
         - [x] move compiled script to output directory
-    - [ ] script sending
+    - [x] script sending
         - [x] file selection
         - [x] IP input with validation
-        - [ ] alternate script name
-        - [ ] send script
-            - [ ] send name size
-            - [ ] send name
-            - [ ] send file size
-            - [ ] send file contents
+        - [x] alternate script name
+        - [x] send script
+            - [x] verify file
+            - [x] catch errors
+            - [x] threading (so GUI remains responsive during send process)
+                - [x] work through send operations
+                - [x] allow user to abort
+                - [x] cancel out on user abort
+            - [x] send data via `socket`
+            - [x] feedback
+                - [x] attempts countdown
+                - [x] send stage
+                - [x] send success / failure
+                - [ ] send failure reason
 
 
 ## GUI Idea Notes
@@ -71,10 +89,10 @@ A note about PySimpleGUI's compatibility with Python versions (from [its own doc
                     - ...
                     - Save N
                     - Meaning (optional)
-            - button: Export Diff (write save diff to file a la current diff script)
+            - button: Export Diff (like [current CLI diff script](https://github.com/FlagBrew/PKSM-Scripts/blob/e37719fd8d6a1ecc3b18c5838dedd7bc6d251ad0/dev/python/diff.py))
         2. Event Diff
             - table-like: differences in Event Flags and Constants of sets of save data
-            - button: Export Diff (write save diff to file a la current diff script)
+            - button: Export Diff (like current CLI diff script)
         3. Search
             - radio: hex, decimal, string
             - dropdown-like: save file to search
@@ -86,7 +104,31 @@ A note about PySimpleGUI's compatibility with Python versions (from [its own doc
             - text input: offset to dump from
             - text input: length of data to dump
             - text input: name for new file
+- Focus-based contextual help
+    - implementation
+        - include some kind of a textual element (Text, Multiline, etc.) to display Help text
+        - check element with focus
+        - change out content of Help text based on focused element
+    - alternative(s)
+        - second window containing the Help text element
+- Research + Compilation integration
+    - envisioned process
+        1. click offset in Research
+        2. switch to Compile tab
+        3. fill an empty row with offset
+            1. if offset has known length, fill row's length input too
+        4. focus row's next empty input ("Data Length" or "Data Repeat")
+- Work sharing
+    - button to trigger building of a shareable `.zip` of work (to be posted in Discord or a PKSM-Scripts issue)
+    - `.zip` contains any of the following applicable files:
+        - `/data/**/*` -- any data files used in creating large `.pksm` scripts
+        - `/src/scripts*.txt` -- command string(s) to be passed to `PKSMScript.py` to generate `.pksm` scripts
+        - `/docs/**/*.json` -- offset documentation JSON files; additional requirements
+            - Research + Compilation integration
+            - script uses previously undefined offset(s)
+            - user-defined meaning(s) for offset(s) used
 
 
 ## Screenshots
-![script compilation](https://cdn.discordapp.com/attachments/758286353439260733/841849300468498432/toolbox-compilation.png)
+![script compilation](https://cdn.discordapp.com/attachments/576085115910881282/883826635319681054/toolbox-compilation.png)
+![script sending](https://cdn.discordapp.com/attachments/758286353439260733/883571768898498581/toolbox-sending.png)

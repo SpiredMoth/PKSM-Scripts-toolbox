@@ -1,5 +1,11 @@
 import os
+import re
 import shutil
+import socket
+import struct
+import sys
+import threading
+import time
 
 import PySimpleGUI as sg
 
@@ -14,6 +20,7 @@ print_fmt = {
     "error": {
         "text_color": "yellow",
         "background_color": "red",
+        "sep": "\n",
         # "end": "",
     },
     "warning": {
@@ -31,6 +38,7 @@ print_fmt = {
 validators = {
     "hex": "0x123456789abcdefABCDEF",
     "ip": "0.123456789",
+    "digit": "0123456789",
 }
 
 save_types = (
@@ -68,11 +76,155 @@ def add_script_input(window: sg.Window, active_inputs: int):
     ]])
 
 
+def collapsible(layout, key, visible: bool):
+    return sg.pin(sg.Column(layout, key=key, visible=visible))
+
+
+def send(address: tuple, data: bytes, abort: threading.Event, window: sg.Window, delay: int = 5, attempts: int = 5):
+    for attempt in range(1, attempts + 1):
+        # delay to let user interact with PKSM screens
+        # ???: delay before each connection attempt or just the first?
+        for _ in range(delay * 2):
+            time.sleep(0.5)
+            if abort.is_set():
+                # shortcut out on user abort
+                raise
+        try:
+            # Error handling test code
+            # if len(data) > 4:
+            #     raise ZeroDivisionError
+            # window.write_event_value(("SEND", "WARNING"), "TODO: socket operation")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(address)
+                s.sendall(data)
+        except ConnectionRefusedError:
+            window.write_event_value(("SEND", "PROGRESS"), attempt)
+            if attempt < attempts:
+                window.write_event_value(("SEND", "WARNING"), f"Send attempt {attempt} failed to connect. Retrying in {delay} seconds")
+        except:
+            # error while connected
+            window.write_event_value(("SEND", "ERROR"), sys.exc_info())
+            break
+        else:
+            # send succeeded
+            return
+    if attempt == attempts:
+        window.write_event_value(("SEND", "ERROR"), (f"Failed to connect in {attempts} tries", ""))
+        abort.set()
+    raise
+
+
+def send_thread(window: sg.Window, abort: threading.Event, file_name: str, ip: str, script_name: str = "", delay: int = 5, attempts: int = 5):
+    address = (ip, 34567)
+    window.write_event_value(("SEND", "STAGE"), "Preparing to send script to PKSM")
+    name = file_name.encode()
+    if script_name:
+        name = script_name.encode()
+
+    try:
+        with open(file_name, "rb") as f:
+            data = f.read()
+
+        window.write_event_value(("SEND", "STAGE"), "Sending length of script name")
+        send(address, struct.pack("i", len(name)), abort, window, delay, attempts)
+        window.write_event_value(("SEND", "STAGE"), "Sending script name")
+        send(address, name, abort, window, delay, attempts)
+        window.write_event_value(("SEND", "STAGE"), "Sending size of file")
+        send(address, struct.pack("i", len(data)), abort, window, delay, attempts)
+        window.write_event_value(("SEND", "STAGE"), "Sending file contents")
+        send(address, data, abort, window, delay, attempts)
+        window.write_event_value(("SEND", "END"), ("Script sent successfully!\n", "success"))
+    except OSError:
+        window.write_event_value(("SEND", "ERROR"), f"An error occurred while reading '{file_name}'.\nSending failed")
+        window.write_event_value(("SEND", "END"), ("Sending failed", "error"))
+    except:
+        if abort.is_set():
+            # shortcut out if user aborted sending or
+            # connection attempts failed enough times
+            window.write_event_value(("SEND", "END"), ("Sending was aborted", "warning"))
+        else:
+            # other socket related error
+            err = ["Sending encountered an error", *sys.exc_info()]
+            window.write_event_value(("SEND", "ERROR"), err)
+            window.write_event_value(("SEND", "END"), ("Sending failed", "error"))
+
+
+def send_event(event, values, window: sg.Window, abort: threading.Event, msg: str):
+    out = window[("SEND", "FEEDBACK", sg.WRITE_ONLY_KEY)]
+    attempts = int(values[("SEND", "ATTEMPTS")])
+
+    # starting and stopping send
+    if event[1] == "START":
+        if os.path.isfile(values[("SEND", "FILE")]):
+            send_name = values[("SEND", "NAME")]
+            if not send_name or "/" in send_name or "\\" in send_name:
+                # PKSM's script-receiver.c does not support nonexistant subdirectories
+                send_name = os.path.basename(values[("SEND", "FILE")])
+            window[("SEND", "HEADER")].update(f"Sending '{os.path.basename(values[('SEND', 'FILE')])}' as '{send_name}'")
+            threading.Thread(target=send_thread, kwargs={
+                "window": window,
+                "abort": abort,
+                "file_name": values[("SEND", "FILE")],
+                "ip": values[("SEND", "IP")],
+                "script_name": send_name,
+                "delay": int(values[("SEND", "DELAY")]),
+                "attempts": attempts,
+            }, daemon=True).start()
+            window[("SEND", "ABORT")].update(disabled=False)
+            window[("SEND", "PROGRESS", "TEXT")].update(f"{attempts} / {attempts}")
+            window[("SEND", "PROGRESS", "BAR")].update(attempts, max=attempts)
+            return "Preparing to send script to PKSM"
+        out.print(f"'{values[('SEND', 'FILE')]}' does not exist or is not a file")
+    elif event[1] == "ABORT":
+        abort.set()
+    elif event[1] == "END":
+        out.print(values[event][0], **print_fmt[values[event][1]])
+        out.print("")
+        file_name = os.path.basename(values[("SEND", "FILE")])
+        send_name = values[("SEND", "NAME")]
+        if not send_name or "/" in send_name or "\\" in send_name:
+            # PKSM's script-receiver.c does not support nonexistant subdirectories
+            send_name = file_name
+        if abort.is_set():
+            window[("SEND", "HEADER")].update(f"Failed to send '{file_name}' to PKSM")
+        else:
+            window[("SEND", "HEADER")].update(f"Sent '{file_name}' as '{send_name}'")
+        window[("SEND", "ACTIVITY")].update(values[event][0])
+        window[("SEND", "PROGRESS", "TEXT")].update("- / -")
+        window[("SEND", "PROGRESS", "BAR")].update(0)
+        window[("SEND", "ABORT")].update(disabled=True)
+        abort.clear()
+        return ""
+    # Send progress
+    elif event[1] == "STAGE":
+        window[("SEND", "ACTIVITY")].update(values[event])
+        out.print(values[event])
+        return values[event]
+    elif event[1] == "PROGRESS":
+        window[("SEND", "PROGRESS", "TEXT")].update(f"{attempts - values[('SEND', 'PROGRESS')]} / {attempts}")
+        window[("SEND", "PROGRESS", "BAR")].update(attempts - values[("SEND", "PROGRESS")])
+    elif event[1] == "WARNING":
+        out.print(values[event], **print_fmt["warning"])
+    # Toggle visibility of delay and attempts controls
+    elif event[1] == "TOGGLE":
+        window[("SEND", event[2])].update(visible=values[event])
+    # Debug and Error printing
+    elif event[1] == "ERROR":
+        out.print(*values[event], **print_fmt["error"])
+    elif event[1] == "DEBUG":
+        print(f"{event}: {values[event]}")
+    return msg
+
+
 def main():
     save_inputs = 1
     save_inputs_active = 1
     script_inputs = 1
     script_inputs_active = 1
+
+    RE_IP = r"^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$"
+    sending = ""
+    abort = threading.Event()
 
     sg.theme("DarkAmber")
 
@@ -119,8 +271,6 @@ def main():
     ]]
 
     compile_layout = [
-        # TODO: information output element (not necessarily a sg.Output)
-        [sg.Text("TODO: Simple script creation and compilation GUI")],
         [
             sg.Column([
                 [
@@ -132,7 +282,7 @@ def main():
                 ],
                 [sg.Column([
                     [sg.Button("Compile Script", key="-COMPILE_START-",
-                            disabled=True)]
+                               disabled=True)]
                 ], justification="center")],
                 [sg.HorizontalSeparator()],
                 [
@@ -148,8 +298,8 @@ def main():
             ]),
             sg.Column([
                 [sg.Multiline(size=(50, 10), autoscroll=True, write_only=True,
-                            key=f"-COMPILE_OUTPUT_{sg.WRITE_ONLY_KEY}", disabled=True,
-                            background_color="#333333", pad=(5, 5), border_width=0)],
+                              key=f"-COMPILE_OUTPUT_{sg.WRITE_ONLY_KEY}", disabled=True,
+                              background_color="#333333", pad=(5, 5), border_width=0)],
             ]),
         ],
         [sg.Frame("Input Groups", [
@@ -165,12 +315,12 @@ def main():
             [
                 sg.Column([[
                     sg.Button("-", size=(2, 1),
-                            key="-COMPILE_REMOVE_0-", disabled=True),
+                              key="-COMPILE_REMOVE_0-", disabled=True),
                     sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_OFFSET_0-", metadata="validate:hex"),
                     sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_LENGTH_0-", metadata="validate:hex"),
                     sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_REPEAT_0-", metadata="validate:hex"),
                     sg.Combo(("Value", "File"), default_value="Value",
-                            enable_events=True, key="-COMPILE_DATA_TYPE_0-"),
+                             enable_events=True, key="-COMPILE_DATA_TYPE_0-"),
                     sg.Input(s=(30, 1), key="-COMPILE_DATA_0-", pad=(0, None)),
                     sg.FileBrowse(disabled=True, key="-COMPILE_FILE_0-"),
                 ]], key="-COMPILE_0-"),
@@ -178,38 +328,83 @@ def main():
         ], key="-COMPILE_GROUPS-", pad=(20, 10))],
     ]
 
-    send_layout = [
-        [sg.Text("TODO: PKSM communication GUI")],
+    send_config_layout = [
         [
             sg.Column([
-                [sg.Text("Script to send:", pad=((5, 0), 5))],
-                [sg.Text("Subdirectory (optional):", pad=((5, 0), 5))],
-                [sg.Text("Change script name? (optional)", pad=((5, 0), 5))],
-                [sg.Text("3DS IP Address:", pad=((5, 0), 5))],
-            ], pad=(0, 5), element_justification="right"),
+                [sg.Text("Delay (in seconds):")],
+                [sg.Text("Number of Attempts:")],
+            ], element_justification="right"),
             sg.Column([
-                [sg.Input(k="-SEND_FILE-", pad=((0, 5), 5)), sg.FileBrowse(file_types=(
-                    ("PKSM Scripts", "*.pksm;*.c"),), target="-SEND_FILE-", pad=(0, 5))],
-                [sg.Input(k="-SEND_SUBDIR-", pad=(0, 5))],
-                [sg.Checkbox("", key="-SEND_CHANGE-", enable_events=True), sg.Column(
-                    [[sg.Input(key="-SEND_NAME-")]], key="-CHANGE_NAME-", visible=False, pad=(0, 0))],
-                [sg.Input(size=(15, 1), k="-SEND_IP-", pad=(0, 5), metadata="validate:ip")],
-            ], pad=((0, 5), 5)),
+                [sg.Input("5", key=("SEND", "DELAY"), size=(5, 1), justification="right", metadata="validate:digit")],
+                [sg.Input("5", key=("SEND", "ATTEMPTS"), size=(5, 1), justification="right", metadata="validate:digit")],
+            ], element_justification="left"),
         ],
-        [sg.Column([[sg.Button("Send to PKSM", key="-SEND_START-",
-                disabled=True)]], justification="center")],
+    ]
+    send_layout = [
+        [
+            sg.Column([
+                [
+                    sg.Column([
+                        [sg.Text("File to send:", pad=((5, 0), 5))],
+                        # [sg.Text("Subdirectory (optional):", pad=((5, 0), 5))],
+                        [sg.Text("Script name (optional):", pad=((5, 0), 5))],
+                        [sg.Text("3DS IP Address:", pad=((5, 0), 5))],
+                    ], pad=(0, 5), element_justification="right", vertical_alignment="top"),
+                    sg.Column([
+                        [sg.Input(k=("SEND", "FILE")), sg.FileBrowse(file_types=(
+                            ("PKSM Scripts", "*.pksm;*.c"),), target=(sg.ThisRow, -1))],
+                        # [sg.Input(k=("SEND", "SUBDIR"), disabled=True)],
+                        [sg.Input(key=("SEND", "NAME"))],
+                        [sg.Input(size=(15, 1), k=("SEND", "IP"),
+                                metadata="validate:ip")],
+                    ], pad=((0, 5), 5), vertical_alignment="top"),
+                ],
+                [sg.Column([[
+                    sg.Button("Send to PKSM", key=("SEND", "START"), disabled=True),
+                    sg.Button("Abort", key=("SEND", "ABORT"), disabled=True),
+                ]], justification="center")],
+                [sg.HorizontalSeparator()],
+                [sg.Checkbox("Advanced socket configuration", key=("SEND", "TOGGLE", "CONFIG"), enable_events=True)],
+                [collapsible(send_config_layout, key=("SEND", "CONFIG"), visible=False)],
+            ], vertical_alignment="top"),
+            sg.Column([
+                [
+                    sg.Text(" ", size=(35, 1), key=("SEND", "HEADER"), font=("_", 15, "bold")),
+                ],
+                [
+                    sg.Text("Remaining Attempts:"),
+                    sg.Text("- / -", key=("SEND", "PROGRESS", "TEXT"), size=(5, 1), justification="center"),
+                    sg.ProgressBar(5, "horizontal", key=(
+                        "SEND", "PROGRESS", "BAR"), size=(18, 15)),
+                ],
+                [
+                    sg.Input("--", key=("SEND", "ACTIVITY"), disabled=True,
+                            size=(50, 1), border_width=0,
+                            disabled_readonly_background_color=sg.theme_background_color(),
+                            disabled_readonly_text_color=sg.theme_text_color())
+                ],
+                [sg.Checkbox("Show log", key=("SEND", "TOGGLE", "LOG"), enable_events=True)],
+                [
+                    collapsible([[
+                        sg.Multiline(key=("SEND", "FEEDBACK", sg.WRITE_ONLY_KEY),
+                                write_only=True, auto_refresh=True, size=(50, 10),
+                                disabled=True, autoscroll=True),
+                    ]], key=("SEND", "LOG"), visible=False),
+                ],
+            ], vertical_alignment="top"),
+        ],
     ]
 
     layout = [[
         sg.TabGroup([[
-            sg.Tab("Save Research", layout=research_layout),
             sg.Tab("Send to PKSM", layout=send_layout),
             sg.Tab("Compile Script", layout=compile_layout),
+            # sg.Tab("Save Research", layout=research_layout),
         ]]),
     ]]
 
     window = sg.Window("PKSM-Scripts Toolbox", layout=layout, finalize=True,
-                    resizable=True, return_keyboard_events=True)
+                       resizable=True, return_keyboard_events=True)
 
     # Event Loop
     while True:
@@ -224,7 +419,7 @@ def main():
             # ComboBox dropdown doesn't like find_element_with_focus
             # print("KeyError:", e)
             focused = None
-        if event != sg.TIMEOUT_EVENT:
+        if event not in (sg.TIMEOUT_EVENT, ("SEND", "DEBUG"), ("SEND", "WARNING"), ("SEND", "STAGE")):
             # development logging
             print(event, values)
             if focused:
@@ -245,6 +440,9 @@ def main():
         if event == "\r":
             if focused and focused.Type == sg.ELEM_TYPE_BUTTON:
                 focused.click()
+        elif event[0] == "SEND":
+            sending = send_event(event, values, window=window, abort=abort, msg=sending)
+        # TODO: refactor: convert keys to tuples
         elif event == "-ADD_SAVE-":
             if save_inputs > save_inputs_active:
                 window[f"-SAVE_FILE_{save_inputs_active}-"].unhide_row()
@@ -295,10 +493,6 @@ def main():
             input_id = int(event[19:-1])
             window[f"-COMPILE_FILE_{input_id}-"].update(
                 disabled=values[f"-COMPILE_DATA_TYPE_{input_id}-"] != "File")
-        elif event == "-SEND_CHANGE-":
-            window["-CHANGE_NAME-"].update(visible=values["-SEND_CHANGE-"])
-            if values["-SEND_CHANGE-"]:
-                window["-SEND_NAME-"].set_focus()
         elif event == "-COMPILE_START-":
             out = window[f"-COMPILE_OUTPUT_{sg.WRITE_ONLY_KEY}"]
             compile_args = []
@@ -319,7 +513,7 @@ def main():
             warnings = []
             for i in range(script_inputs_active):
                 group = [values[f"-COMPILE_{itm}_{i}-"]
-                        for itm in compile_arg_types]
+                         for itm in compile_arg_types]
                 new_warns = False
                 for t in ("OFFSET", "LENGTH", "REPEAT"):
                     try:
@@ -330,7 +524,7 @@ def main():
                         warnings.append(f"  Input group {i+1}'s {t} is not a valid value")
                 if values[f"-COMPILE_DATA_TYPE_{i}-"] == "File":
                     # confirm file exists
-                    if not os.path.exists(group[2]) or not os.path.isfile(group[2]):
+                    if not os.path.isfile(group[2]):
                         new_warns = True
                         warnings.append(f"  Input file {i+1} does not exist or is not a file")
                 elif values[f"-COMPILE_DATA_TYPE_{i}-"] == "Value":
@@ -366,11 +560,17 @@ def main():
                 out.print("ERROR:", **print_fmt["error"])
                 out.print(" No suitable inputs were found. Script failed to compile")
 
-        # Conditional button enable/disable
-        if values["-SEND_FILE-"] and values["-SEND_IP-"]:
-            window["-SEND_START-"].update(disabled=False)
+        # Conditional widget state manipulation
+        if sending != "":
+            if sending[-3:] == "...":
+                sending = sending[:-3]
+            else:
+                sending = f"{sending}."
+            window[("SEND", "ACTIVITY")].update(sending)
+        if values[("SEND", "FILE")] and re.match(RE_IP, values[("SEND", "IP")]) and sending == "":
+            window[("SEND", "START")].update(disabled=False)
         else:
-            window["-SEND_START-"].update(disabled=True)
+            window[("SEND", "START")].update(disabled=True)
         if values["-COMPILE_NAME-"]:
             window["-COMPILE_START-"].update(disabled=False)
         else:
