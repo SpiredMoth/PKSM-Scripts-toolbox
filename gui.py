@@ -45,6 +45,8 @@ save_types = (
     ("Pokemon save", "*.sav;*.dsv;main;*.main;savedata.bin"), ("ALL Files", "*.*"))
 
 ############################################################
+#  GUI Creation Functions
+############################################################
 
 
 def add_save(window: sg.Window, active_inputs: int):
@@ -59,25 +61,30 @@ def add_save(window: sg.Window, active_inputs: int):
 
 
 def add_script_input(window: sg.Window, active_inputs: int):
-    window.extend_layout(window["-COMPILE_GROUPS-"], [[
+    window.extend_layout(window[("COMPILE", "GROUPS")], [[
         sg.Column([[
-            sg.Button("-", size=(2, 1), key=f"-COMPILE_REMOVE_{active_inputs}-"),
+            sg.Button("-", size=(2, 1), key=("COMPILE", "REMOVE", active_inputs)),
             sg.Input(s=(10, 1), pad=(10, None), metadata="validate:hex",
-                     key=f"-COMPILE_OFFSET_{active_inputs}-"),
+                     key=("COMPILE", "OFFSET", active_inputs)),
             sg.Input(s=(10, 1), pad=(10, None), metadata="validate:hex",
-                     key=f"-COMPILE_LENGTH_{active_inputs}-"),
+                     key=("COMPILE", "LENGTH", active_inputs)),
             sg.Input(s=(10, 1), pad=(10, None), metadata="validate:hex",
-                     key=f"-COMPILE_REPEAT_{active_inputs}-"),
+                     key=("COMPILE", "REPEAT", active_inputs)),
             sg.Combo(("Value", "File"), default_value="Value", enable_events=True,
-                     key=f"-COMPILE_DATA_TYPE_{active_inputs}-"),
-            sg.Input(s=(30, 1), key=f"-COMPILE_DATA_{active_inputs}-", pad=(0, None)),
-            sg.FileBrowse(disabled=True, key=f"-COMPILE_FILE_{active_inputs}-"),
-        ]], key=f"-COMPILE_{active_inputs}-"),
+                     key=("COMPILE", "DATA_TYPE", active_inputs)),
+            sg.Input(s=(30, 1), key=("COMPILE", "DATA", active_inputs), pad=(0, None)),
+            sg.FileBrowse(disabled=True, key=("COMPILE", "FILE", active_inputs)),
+        ]], key=("COMPILE", active_inputs)),
     ]])
 
 
 def collapsible(layout, key, visible: bool):
     return sg.pin(sg.Column(layout, key=key, visible=visible))
+
+
+############################################################
+#  PKSM Communication Functions
+############################################################
 
 
 def send(address: tuple, data: bytes, abort: threading.Event, window: sg.Window, delay: int = 5, attempts: int = 5):
@@ -149,7 +156,12 @@ def send_thread(window: sg.Window, abort: threading.Event, file_name: str, ip: s
             window.write_event_value(("SEND", "END"), ("Sending failed", "error"))
 
 
-def send_event(event, values, window: sg.Window, abort: threading.Event, msg: str):
+############################################################
+#  Event Handling Functions
+############################################################
+
+
+def send_event(event, values, window: sg.Window, abort: threading.Event, msg: str) -> str:
     out = window[("SEND", "FEEDBACK", sg.WRITE_ONLY_KEY)]
     attempts = int(values[("SEND", "ATTEMPTS")])
 
@@ -216,6 +228,103 @@ def send_event(event, values, window: sg.Window, abort: threading.Event, msg: st
     return msg
 
 
+def compile_event(event, values, window: sg.Window, inputs: int, active: int) -> tuple:
+    if event[1] == "ADD":
+        if inputs > active:
+            window[("COMPILE", "OFFSET", active)].unhide_row()
+        else:
+            add_script_input(window, active)
+            inputs += 1
+        window[("COMPILE", "OFFSET", active)].set_focus()
+        active += 1
+        window[("COMPILE", "REMOVE", 0)].update(disabled=False)
+    elif event[1] == "REMOVE":
+        input_id = event[2]
+        if input_id < active - 1:
+            for i in range(input_id, active - 1):
+                for s in ("OFFSET", "LENGTH", "REPEAT", "DATA_TYPE", "DATA"):
+                    window[("COMPILE", s, i)].update(value=values[("COMPILE", s, i+1)])
+                    window[("COMPILE", s, i+1)].update(value="Value" if s == "DATA_TYPE" else "")
+                window[("COMPILE", "FILE", i)].update(disabled=values[("COMPILE", "DATA_TYPE", i+1)] != "File")
+        for s in ("OFFSET", "LENGTH", "REPEAT", "DATA_TYPE", "DATA"):
+            window[("COMPILE", s, input_id)].update(value="Value" if s == "DATA_TYPE" else "")
+        window[("COMPILE", "FILE", input_id)].update(disabled=values[("COMPILE", "DATA_TYPE", input_id)] != "File")
+        window[("COMPILE", "OFFSET", active-1)].hide_row()
+        active -= 1
+        if active == 1:
+            window[("COMPILE", "REMOVE", 0)].update(disabled=True)
+    elif event[1] == "DATE_TYPE":
+        input_id = event[2]
+        window[("COMPILE", "FILE", input_id)].update(disabled=values[("COMPILE", "DATA_TYPE", input_id)] != "FILE")
+    elif event[1] == "START":
+        out = window[("COMPILE", "OUTPUT", sg.WRITE_ONLY_KEY)]
+        compile_args = []
+        file_name = values[("COMPILE", "NAME")]
+        if file_name[-5:] == ".pksm":
+            file_name = file_name[:-5]
+        compile_args.append(file_name)
+        file_name = compiled_name = f"{file_name}.pksm"
+        subdir = values[("COMPILE", "SUBDIR")]
+        if subdir:
+            compile_args.extend(["-d", subdir])
+            file_name = os.path.join(subdir, file_name)
+            compiled_name = os.path.join("build", file_name)
+
+        # gather and validate compilation args
+        out.print("\nGathering script input...")
+        compile_arg_types = ("OFFSET", "LENGTH", "DATA", "REPEAT")
+        warnings = []
+        for i in range(active):
+            group = [values[("COMPILE", itm, i)] for itm in compile_arg_types]
+            new_warns = False
+            for t in ("OFFSET", "LENGTH", "REPEAT"):
+                try:
+                    # catch invalid input before it gets passed to compilation
+                    int(values[("COMPILE", t, i)], 0)
+                except ValueError:
+                    new_warns = True
+                    warnings.append(f"  Input group {i+1}'s {t} is not a valid value")
+            if values[("COMPILE", "DATA_TYPE", i)] == "File":
+                # confirm file exists
+                if not os.path.isfile(group[2]):
+                    new_warns = True
+                    warnings.append(f"  Input file {i+1} does not exist or is not a file")
+            elif values[("COMPILE", "DATA_TYPE", i)] == "Value":
+                try:
+                    int(group[2], 0)
+                except ValueError:
+                    new_warns = True
+                    warnings.append(f"  Input group {i+1}'s DATA is not a valid value")
+            else:
+                new_warns = True
+                warnings.append(f"  Input group {i+1}'s DATA_TYPE is not a recognized value")
+            if not new_warns:
+                compile_args.extend(["-i", *group])
+
+        if warnings:
+            out.print("WARNING(s):", **print_fmt["warning"])
+            for warn in warnings:
+                out.print(warn)
+
+        # compile result
+        if len(compile_args) > 3:
+            script_args = ps.parser.parse_args(compile_args)
+            ps.main(script_args)
+            out.print("SUCCESS:", **print_fmt["success"])
+            out.print(" Script compiled successfully!")
+            dest = values[("COMPILE", "DEST")]
+            if dest or subdir:
+                os.makedirs(os.path.join(dest, subdir), exist_ok=True)
+                shutil.move(compiled_name, os.path.join(dest, file_name))
+                out.print(f"Script saved to '{os.path.join(dest, file_name)}'")
+                # TODO: provide PKSMScript compile command
+        else:
+            out.print("ERROR:", **print_fmt["error"])
+            out.print(" No suitable inputs were found. Script failed to compile")
+
+    return inputs, active
+
+
 def main():
     save_inputs = 1
     save_inputs_active = 1
@@ -276,12 +385,12 @@ def main():
                 [
                     sg.Column([[
                         sg.Text("Scripts folder:"),
-                        sg.Input(k="-COMPILE_DEST-"),
-                        sg.FolderBrowse(target="-COMPILE_DEST-"),
+                        sg.Input(k=("COMPILE", "DEST")),
+                        sg.FolderBrowse(target=(sg.ThisRow, -1)),
                     ]]),
                 ],
                 [sg.Column([
-                    [sg.Button("Compile Script", key="-COMPILE_START-",
+                    [sg.Button("Compile Script", key=("COMPILE", "START"),
                                disabled=True)]
                 ], justification="center")],
                 [sg.HorizontalSeparator()],
@@ -291,21 +400,22 @@ def main():
                         [sg.Text("Subdirectory (optional):", pad=(0, 5))],
                     ], element_justification="right"),
                     sg.Column([
-                        [sg.Input(k="-COMPILE_NAME-", pad=(0, 5))],
-                        [sg.Input(k="-COMPILE_SUBDIR-", pad=(0, 5))],
+                        [sg.Input(k=("COMPILE", "NAME"), pad=(0, 5))],
+                        [sg.Input(k=("COMPILE", "SUBDIR"), pad=(0, 5))],
                     ]),
                 ],
             ]),
             sg.Column([
                 [sg.Multiline(size=(50, 10), autoscroll=True, write_only=True,
-                              key=f"-COMPILE_OUTPUT_{sg.WRITE_ONLY_KEY}", disabled=True,
-                              background_color="#333333", pad=(5, 5), border_width=0)],
+                              key=("COMPILE", "OUTPUT", sg.WRITE_ONLY_KEY), disabled=True,
+                              background_color=sg.theme_input_background_color(),
+                              pad=(5, 5), border_width=0)],
             ]),
         ],
         [sg.Frame("Input Groups", [
             [
                 sg.Column([[
-                    sg.Button("Add", size=(3, 1), key="-COMPILE_ADD-"),
+                    sg.Button("Add", size=(3, 1), key=("COMPILE", "ADD")),
                     sg.Text("Offset", s=(10, 1)),
                     sg.Text("Data Length", s=(10, 1)),
                     sg.Text("Data Repeat", s=(10, 1)),
@@ -315,17 +425,17 @@ def main():
             [
                 sg.Column([[
                     sg.Button("-", size=(2, 1),
-                              key="-COMPILE_REMOVE_0-", disabled=True),
-                    sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_OFFSET_0-", metadata="validate:hex"),
-                    sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_LENGTH_0-", metadata="validate:hex"),
-                    sg.Input(s=(10, 1), pad=(10, None), key="-COMPILE_REPEAT_0-", metadata="validate:hex"),
+                              key=("COMPILE", "REMOVE", 0), disabled=True),
+                    sg.Input(s=(10, 1), pad=(10, None), key=("COMPILE", "OFFSET", 0), metadata="validate:hex"),
+                    sg.Input(s=(10, 1), pad=(10, None), key=("COMPILE", "LENGTH", 0), metadata="validate:hex"),
+                    sg.Input(s=(10, 1), pad=(10, None), key=("COMPILE", "REPEAT", 0), metadata="validate:hex"),
                     sg.Combo(("Value", "File"), default_value="Value",
-                             enable_events=True, key="-COMPILE_DATA_TYPE_0-"),
-                    sg.Input(s=(30, 1), key="-COMPILE_DATA_0-", pad=(0, None)),
-                    sg.FileBrowse(disabled=True, key="-COMPILE_FILE_0-"),
-                ]], key="-COMPILE_0-"),
+                             enable_events=True, key=("COMPILE", "DATA_TYPE", 0)),
+                    sg.Input(s=(30, 1), key=("COMPILE", "DATA", 0), pad=(0, None)),
+                    sg.FileBrowse(disabled=True, key=("COMPILE", "FILE", 0)),
+                ]], key=("COMPILE", 0)),
             ],
-        ], key="-COMPILE_GROUPS-", pad=(20, 10))],
+        ], key=("COMPILE", "GROUPS"), pad=(20, 10))],
     ]
 
     send_config_layout = [
@@ -419,7 +529,7 @@ def main():
             # ComboBox dropdown doesn't like find_element_with_focus
             # print("KeyError:", e)
             focused = None
-        if event not in (sg.TIMEOUT_EVENT, ("SEND", "DEBUG"), ("SEND", "WARNING"), ("SEND", "STAGE")):
+        if event != sg.TIMEOUT_EVENT and event[0] not in ("SEND", ""):
             # development logging
             print(event, values)
             if focused:
@@ -442,6 +552,8 @@ def main():
                 focused.click()
         elif event[0] == "SEND":
             sending = send_event(event, values, window=window, abort=abort, msg=sending)
+        elif event[0] == "COMPILE":
+            script_inputs, script_inputs_active = compile_event(event, values, window, inputs=script_inputs, active=script_inputs_active)
         # TODO: refactor: convert keys to tuples
         elif event == "-ADD_SAVE-":
             if save_inputs > save_inputs_active:
@@ -465,100 +577,6 @@ def main():
             save_inputs_active -= 1
             if save_inputs_active == 1:
                 window["-SAVE_REMOVE_0-"].update(disabled=True)
-        elif event == "-COMPILE_ADD-":
-            if script_inputs > script_inputs_active:
-                window[f"-COMPILE_OFFSET_{script_inputs_active}-"].unhide_row()
-            else:
-                add_script_input(window, script_inputs_active)
-                script_inputs += 1
-            window[f"-COMPILE_OFFSET_{script_inputs_active}-"].set_focus()
-            script_inputs_active += 1
-            window["-COMPILE_REMOVE_0-"].update(disabled=False)
-        elif event.startswith("-COMPILE_REMOVE_"):
-            input_id = int(event[16:-1])
-            if input_id < script_inputs_active - 1:
-                for i in range(input_id, script_inputs_active - 1):
-                    for s in ("OFFSET", "LENGTH", "DATA_TYPE", "DATA"):
-                        window[f"-COMPILE_{s}_{i}-"].update(
-                            value=values[f"-COMPILE_{s}_{i+1}-"])
-                        window[f"-COMPILE_{s}_{i+1}-"].update(
-                            value="Value" if s == "DATA_TYPE" else "")
-                    window[f"-COMPILE_FILE_{i}-"].update(
-                        disabled=values[f"-COMPILE_DATA_TYPE_{i+1}-"] != "File")
-            window[f"-COMPILE_OFFSET_{script_inputs_active-1}-"].hide_row()
-            script_inputs_active -= 1
-            if script_inputs_active == 1:
-                window["-COMPILE_REMOVE_0-"].update(disabled=True)
-        elif event.startswith("-COMPILE_DATA_TYPE_"):
-            input_id = int(event[19:-1])
-            window[f"-COMPILE_FILE_{input_id}-"].update(
-                disabled=values[f"-COMPILE_DATA_TYPE_{input_id}-"] != "File")
-        elif event == "-COMPILE_START-":
-            out = window[f"-COMPILE_OUTPUT_{sg.WRITE_ONLY_KEY}"]
-            compile_args = []
-            file_name = values["-COMPILE_NAME-"]
-            if file_name[-5:] == ".pksm":
-                file_name = file_name[:-5]
-            compile_args.append(file_name)
-            file_name = compiled_name = f"{file_name}.pksm"
-            subdir = values["-COMPILE_SUBDIR-"]
-            if subdir:
-                compile_args.extend(["-d", subdir])
-                file_name = os.path.join(subdir, file_name)
-                compiled_name = os.path.join("build", file_name)
-
-            # gather and validate compilation args
-            out.print("\nGathering script input...")
-            compile_arg_types = ("OFFSET", "LENGTH", "DATA", "REPEAT")
-            warnings = []
-            for i in range(script_inputs_active):
-                group = [values[f"-COMPILE_{itm}_{i}-"]
-                         for itm in compile_arg_types]
-                new_warns = False
-                for t in ("OFFSET", "LENGTH", "REPEAT"):
-                    try:
-                        # catch invalid input before it gets passed to compilation
-                        int(values[f"-COMPILE_{t}_{i}-"], 0)
-                    except ValueError:
-                        new_warns = True
-                        warnings.append(f"  Input group {i+1}'s {t} is not a valid value")
-                if values[f"-COMPILE_DATA_TYPE_{i}-"] == "File":
-                    # confirm file exists
-                    if not os.path.isfile(group[2]):
-                        new_warns = True
-                        warnings.append(f"  Input file {i+1} does not exist or is not a file")
-                elif values[f"-COMPILE_DATA_TYPE_{i}-"] == "Value":
-                    try:
-                        int(group[2], 0)
-                    except ValueError:
-                        new_warns = True
-                        warnings.append(f"  Input group {i+1}'s DATA is not a valid value")
-                else:
-                    new_warns = True
-                    warnings.append(f"  Input group {i+1}'s DATA_TYPE is not a recognized value")
-                if not new_warns:
-                    compile_args.extend(["-i", *group])
-
-            if warnings:
-                out.print("WARNING(s):", **print_fmt["warning"])
-                for warn in warnings:
-                    out.print(warn)
-
-            # compile result
-            if len(compile_args) > 3:
-                script_args = ps.parser.parse_args(compile_args)
-                ps.main(script_args)
-                out.print("SUCCESS:", **print_fmt["success"])
-                out.print(" Script compiled successfully!")
-                dest = values["-COMPILE_DEST-"]
-                if dest or subdir:
-                    os.makedirs(os.path.join(dest, subdir), exist_ok=True)
-                    shutil.move(compiled_name, os.path.join(dest, file_name))
-                    out.print(f"Script saved to '{os.path.join(dest, file_name)}'")
-                    # TODO: provide PKSMScript compile command
-            else:
-                out.print("ERROR:", **print_fmt["error"])
-                out.print(" No suitable inputs were found. Script failed to compile")
 
         # Conditional widget state manipulation
         if sending != "":
@@ -571,10 +589,10 @@ def main():
             window[("SEND", "START")].update(disabled=False)
         else:
             window[("SEND", "START")].update(disabled=True)
-        if values["-COMPILE_NAME-"]:
-            window["-COMPILE_START-"].update(disabled=False)
+        if values[("COMPILE", "NAME")]:
+            window[("COMPILE", "START")].update(disabled=False)
         else:
-            window["-COMPILE_START-"].update(disabled=True)
+            window[("COMPILE", "START")].update(disabled=True)
 
     window.close()
 

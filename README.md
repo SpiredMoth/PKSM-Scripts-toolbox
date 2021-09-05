@@ -130,5 +130,5 @@ A note about PySimpleGUI's compatibility with Python versions (from [its own doc
 
 
 ## Screenshots
-![script compilation](https://cdn.discordapp.com/attachments/576085115910881282/883826635319681054/toolbox-compilation.png)
+![script compilation](https://cdn.discordapp.com/attachments/576085115910881282/883899963753496637/toolbox-compilation.png)
 ![script sending](https://cdn.discordapp.com/attachments/758286353439260733/883571768898498581/toolbox-sending.png)
